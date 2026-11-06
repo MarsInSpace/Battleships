@@ -75,6 +75,7 @@ void initShips(ship ships[TOTAL_SHIPS]) {
     ships[4].shipLength = 2;
 }
 
+//get random number, passing argument of max rows or max columns in function placeShipRandom
 int getRandom(int upper_bound){
     return rand() % upper_bound;
 }
@@ -84,11 +85,19 @@ struct hitbox {
     int starting_column;
     int ending_row;
     int ending_column;
+
+    int ship_start_row;
+    int ship_end_row;
+    int ship_start_column;
+    int ship_end_column;
 };
 
-
+//determine hitbox of ship --> ship body + one square around
 struct hitbox getHitbox(ship ship, int board[MAX_ROWS][MAX_COLUMNS], unsigned short row, unsigned short column, unsigned short orientation) {
     struct hitbox bounds;
+
+    bounds.ship_start_row = row;
+    bounds.ship_start_column = column;
 
     bounds.starting_row = (row == 0) ? 0 : row - 1;
     bounds.starting_column = (column == 0) ? 0 : column - 1;
@@ -96,10 +105,16 @@ struct hitbox getHitbox(ship ship, int board[MAX_ROWS][MAX_COLUMNS], unsigned sh
     if (orientation == HORIZONTAL) {
         bounds.ending_row = (row == MAX_ROWS - 1) ? row : row + 1;
         bounds.ending_column = (column + ship.shipLength - 1 == MAX_COLUMNS - 1) ? column + ship.shipLength - 1 : column + ship.shipLength;
+
+        bounds.ship_end_row = row;
+        bounds.ship_end_column = column + ship.shipLength - 1;
     }
     else if (orientation == VERTICAL) {    
         bounds.ending_column = (column == MAX_COLUMNS - 1) ? column : column + 1;
         bounds.ending_row = (row + ship.shipLength - 1 == MAX_ROWS - 1) ? row + ship.shipLength - 1 : row + ship.shipLength;
+
+        bounds.ship_end_row = row + ship.shipLength - 1;
+        bounds.ship_end_column = column;
     }
 
     return bounds;
@@ -118,8 +133,8 @@ bool isShipPlaceable(ship ship, int board[MAX_ROWS][MAX_COLUMNS], unsigned short
     hitbox ship_hitbox = getHitbox(ship, board, row, column, orientation);
 
     //check if area of and around ship is clear
-    for (int i = ship_hitbox.starting_row; i < ship_hitbox.ending_row; i++) {
-        for (int j = ship_hitbox.starting_column; j < ship_hitbox.ending_column; j++) {
+    for (int i = ship_hitbox.starting_row; i <= ship_hitbox.ending_row; i++) {
+        for (int j = ship_hitbox.starting_column; j <= ship_hitbox.ending_column; j++) {
             if (board[i][j] != EMPTY) {
                 return false;
             }
@@ -129,6 +144,7 @@ bool isShipPlaceable(ship ship, int board[MAX_ROWS][MAX_COLUMNS], unsigned short
     return true;
 }
 
+//places ships on player board and enemy board
 void placeShip(ship ship, int board[MAX_ROWS][MAX_COLUMNS], unsigned short row, unsigned short column, unsigned short orientation) {
     if (orientation == VERTICAL) {
         for (int i = row; i < row + ship.shipLength; i++) {
@@ -142,6 +158,7 @@ void placeShip(ship ship, int board[MAX_ROWS][MAX_COLUMNS], unsigned short row, 
     }
 }
 
+//gives random coordinates to placeShip
 void placeShipRandom(ship ship, int board[MAX_ROWS][MAX_COLUMNS]) {
     unsigned short rand_row;
     unsigned short rand_column;
@@ -160,18 +177,95 @@ void placeShipRandom(ship ship, int board[MAX_ROWS][MAX_COLUMNS]) {
     placeShip(ship, board, rand_row, rand_column, rand_orientation);
 }
 
-void playerTurn() {
+struct targetCoordinates {
+    unsigned short row_index;
+    unsigned short column_index;
+};
+
+struct targetCoordinates validateInput(int board[MAX_ROWS][MAX_COLUMNS]) {
+    struct targetCoordinates coordinates;
+    bool is_input_valid = false;
+    string input;
+    char row_input;
+    char column_input;
+    unsigned short row_short;
+    unsigned short column_short;
+    
+    do {
+        cout << "Please input target coordinate:\n";
+        cin >> input;
+
+        //separating input coordinates
+        row_input = input[1];
+        column_input = tolower(input[0]); //making sure it's lower case just in case
+        row_short = row_input - '0';
+        column_short = column_input - 'a';
+
+        if (input.length() != 2) {
+            cout << "Invalid input, please type a valid coordinate (e.g. b4).\n";
+        }
+        else if (row_input < '0' || row_input > '0' + MAX_ROWS - 1 || column_input < 'a' || column_input > 'a' + MAX_COLUMNS - 1) {
+            cout << "Invalid input, coordinate out of bounds. Please make sure the coordinate exists in the playing field.\n";
+        }
+        else if (board[row_short][column_short] != EMPTY && board[row_short][column_short] != OCCUPIED) {
+            cout << "You have targeted this field before, please type a new coordinate.\n";
+        }
+        else {
+            coordinates.row_index = row_short;
+            coordinates.column_index = column_short;
+            is_input_valid = true;
+        }
+    } while (!is_input_valid);
+    
+    return coordinates;
+}
+
+void checkShotField(targetCoordinates coordinates, int board[MAX_ROWS][MAX_COLUMNS]) {
+    int status = board[coordinates.row_index][coordinates.column_index];
+    
+    if (status == EMPTY) {
+        board[coordinates.row_index][coordinates.column_index] = WATER;
+        cout << "You hit water!\n";
+    }
+    else if (status == OCCUPIED) {
+        board[coordinates.row_index][coordinates.column_index] = HIT;
+        cout << "You hit an enemy ship!\n";
+    }
+    // else if (status == HIT) {
+    //     sinkShip(coordinates, board);
+    // }
+    else {
+        cout << "Invalid shot\n";
+    }
+    
+}
+
+void sinkShip(targetCoordinates coordinates, int board[MAX_ROWS][MAX_COLUMNS]) {
+    board[coordinates.row_index][coordinates.column_index] = SUNK;
+}
+
+void playerTurn(int board[MAX_ROWS][MAX_COLUMNS]) {
     //ask player input in coordinates "b4"
     cout << "PLAYER TURN\n";
-    cout << "Please input target coordinate:\n";
-    //IF field already struck previously or out of bounds: ask input again
-    //check if COM has a ship there
+    //make sure input coordinates have correct syntax, are inside the playing field, and haven't been hit before
+    targetCoordinates coordinates = validateInput(board);
+    //check if COM has a ship there & update field status
+    checkShotField(coordinates, board);
+    
     //give feedback water, hit, sunk
 }
 
 void comTurn() {
     cout << "ENEMY TURN\n";
     //random shoot without player input
+}
+
+void showBoards(int enemy[MAX_ROWS][MAX_COLUMNS], int player[MAX_ROWS][MAX_COLUMNS]) {
+    cout << "ENEMY BOARD\n";
+    printBoard(enemy, false);
+    cout << "--------------------------------------------------------\n";
+    cout << "PLAYER BOARD\n";
+    printBoard(player, true);
 }
 
 int main() {
@@ -199,19 +293,14 @@ int main() {
         placeShipRandom(s, enemy_board);
     }
 
-    cout << "ENEMY BOARD\n";
-    printBoard(enemy_board, false);
-    cout << "--------------------------------------------------------\n";
-    cout << "PLAYER BOARD\n";
-    printBoard(player_board, true);
-
     
 
-    // while(isRunning == true) {
-    //     //game loop
-    //     playerTurn();
-    //     comTurn();
-    // }
+    while(isRunning == true) {
+        //game loop
+        showBoards(enemy_board, player_board);
+        playerTurn(enemy_board);
+        //comTurn();
+    }
 
     return 0;
 }
