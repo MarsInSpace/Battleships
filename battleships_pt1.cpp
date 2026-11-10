@@ -13,10 +13,10 @@ const unsigned short TOTAL_SHIPS = 5;
 const unsigned short HORIZONTAL = 0;
 const unsigned short VERTICAL = 1;
 
-//status: 0 = empty, 1 = has ship, 2 = shot water, 3 = hit ship, 4 = sunk
+//status: 0 = empty, 1 = has ship, 2 = shot MISSED, 3 = hit ship, 4 = sunk
 const int EMPTY = 0;
 const int OCCUPIED = 1;
-const int WATER = 2;
+const int MISSED = 2;
 const int HIT = 3;
 const int SUNK = 4;
 
@@ -43,7 +43,7 @@ void printBoard(int board[MAX_ROWS][MAX_COLUMNS], bool is_player_field) {
             else if (board[x][y] == OCCUPIED && is_player_field) {
                 cout << setw(5) << "S|";
             }
-            else if(board[x][y] == WATER ) {
+            else if(board[x][y] == MISSED ) {
                 cout << setw(5) << "O|";
             }
             else if(board[x][y] == HIT ) {
@@ -85,36 +85,21 @@ struct hitbox {
     int starting_column;
     int ending_row;
     int ending_column;
-
-    int ship_start_row;
-    int ship_end_row;
-    int ship_start_column;
-    int ship_end_column;
 };
 
 //determine hitbox of ship --> ship body + one square around
 struct hitbox getHitbox(ship ship, int board[MAX_ROWS][MAX_COLUMNS], unsigned short row, unsigned short column, unsigned short orientation) {
     struct hitbox bounds;
-
-    bounds.ship_start_row = row;
-    bounds.ship_start_column = column;
-
     bounds.starting_row = (row == 0) ? 0 : row - 1;
     bounds.starting_column = (column == 0) ? 0 : column - 1;
 
     if (orientation == HORIZONTAL) {
         bounds.ending_row = (row == MAX_ROWS - 1) ? row : row + 1;
         bounds.ending_column = (column + ship.shipLength - 1 == MAX_COLUMNS - 1) ? column + ship.shipLength - 1 : column + ship.shipLength;
-
-        bounds.ship_end_row = row;
-        bounds.ship_end_column = column + ship.shipLength - 1;
     }
     else if (orientation == VERTICAL) {    
         bounds.ending_column = (column == MAX_COLUMNS - 1) ? column : column + 1;
         bounds.ending_row = (row + ship.shipLength - 1 == MAX_ROWS - 1) ? row + ship.shipLength - 1 : row + ship.shipLength;
-
-        bounds.ship_end_row = row + ship.shipLength - 1;
-        bounds.ship_end_column = column;
     }
 
     return bounds;
@@ -220,28 +205,97 @@ struct targetCoordinates validateInput(int board[MAX_ROWS][MAX_COLUMNS]) {
     return coordinates;
 }
 
+bool checkForHit(bool is_checking_row, bool is_checking_up, int board[MAX_ROWS][MAX_COLUMNS], int row_array[], int col_array[], int row_coordinate, int col_coordinate, unsigned short row_index, unsigned short col_index){
+    bool is_ship_sunk = true;
+    while (board[row_coordinate][col_coordinate] == HIT || board[row_coordinate][col_coordinate] == OCCUPIED)
+    {
+        if (board[row_coordinate][col_coordinate] == OCCUPIED)
+        {
+            is_ship_sunk = false;
+            break;
+        }
+        
+        col_array[col_index] = col_coordinate;
+        row_array[row_index] = row_coordinate;
+        col_index++;
+        row_index++;
+        if (is_checking_row && is_checking_up){
+            row_coordinate++;
+            cout << "checking row up\n";
+        }
+        else if (is_checking_row && !is_checking_up){
+            row_coordinate--;
+            cout << "checking row down\n";
+        }
+        else if (!is_checking_row && is_checking_up){
+            col_coordinate++;
+            cout << "checking col up\n";
+        }
+        else if (!is_checking_row && !is_checking_up){
+            col_coordinate--;
+            cout << "checking col down\n";
+        }
+        cout << board[row_coordinate][col_coordinate] << endl;
+        cout << is_ship_sunk << endl;
+    }
+    return is_ship_sunk;
+}
+
+void checkSunkShip(targetCoordinates coordinates, int board[MAX_ROWS][MAX_COLUMNS]) {
+    int row_coordinate = coordinates.row_index;
+    int column_coordinate = coordinates.column_index;
+    int row_positions[] = {};
+    int column_positions[] = {};
+    unsigned short array_column_index = 0;
+    unsigned short array_row_index = 0;
+    bool is_ship_sunk;
+
+    //check column right
+    is_ship_sunk = checkForHit(false, true, board, row_positions, column_positions, row_coordinate, column_coordinate, array_row_index, array_column_index);
+    //reset column
+    column_coordinate = coordinates.column_index;
+    //check column left
+    is_ship_sunk = checkForHit(false, false, board, row_positions, column_positions, row_coordinate, column_coordinate, array_row_index, array_column_index);
+    //reset column
+    column_coordinate = coordinates.column_index;
+    //check row up
+    is_ship_sunk = checkForHit(true, true, board, row_positions, column_positions, row_coordinate, column_coordinate, array_row_index, array_column_index);
+    //reset row
+    row_coordinate = coordinates.row_index;
+    //check row down
+    is_ship_sunk = checkForHit(true, false, board, row_positions, column_positions, row_coordinate, column_coordinate, array_row_index, array_column_index);
+    
+    if (is_ship_sunk)
+    {
+        for (int i = 0; i < sizeof(row_positions); i++){
+            board[coordinates.row_index + i][coordinates.column_index] = SUNK;
+        }
+        for (int i = 0; i < sizeof(column_positions); i++){
+            board[coordinates.row_index][coordinates.column_index + i] = SUNK;
+        }
+    }
+    
+}
+
 void checkShotField(targetCoordinates coordinates, int board[MAX_ROWS][MAX_COLUMNS]) {
     int status = board[coordinates.row_index][coordinates.column_index];
     
     if (status == EMPTY) {
-        board[coordinates.row_index][coordinates.column_index] = WATER;
+        board[coordinates.row_index][coordinates.column_index] = MISSED;
         cout << "You hit water!\n";
     }
     else if (status == OCCUPIED) {
         board[coordinates.row_index][coordinates.column_index] = HIT;
         cout << "You hit an enemy ship!\n";
+        checkSunkShip(coordinates, board);
+        if (board[coordinates.row_index][coordinates.column_index] == SUNK){
+            cout << "You sunk the ship!\n";
+        }
     }
-    // else if (status == HIT) {
-    //     sinkShip(coordinates, board);
-    // }
     else {
         cout << "Invalid shot\n";
     }
     
-}
-
-void sinkShip(targetCoordinates coordinates, int board[MAX_ROWS][MAX_COLUMNS]) {
-    board[coordinates.row_index][coordinates.column_index] = SUNK;
 }
 
 void playerTurn(int board[MAX_ROWS][MAX_COLUMNS]) {
@@ -252,7 +306,7 @@ void playerTurn(int board[MAX_ROWS][MAX_COLUMNS]) {
     //check if COM has a ship there & update field status
     checkShotField(coordinates, board);
     
-    //give feedback water, hit, sunk
+    //give feedback MISSED, hit, sunk
 }
 
 void comTurn() {
